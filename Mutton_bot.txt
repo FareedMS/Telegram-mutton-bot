@@ -1,0 +1,834 @@
+function getSheets() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  return {
+    ref:ss.getSheetByName("Ref"),
+    users: ss.getSheetByName("Users"),
+    cart: ss.getSheetByName("cart"),
+    temp: ss.getSheetByName("temp"),
+    prices: ss.getSheetByName("Prices"),
+    state: ss.getSheetByName("state"),
+    order: ss.getSheetByName("order")
+  };
+}
+
+const token = "Telegram_token";
+const RAZORPAY_SECRET = "RAZORPAY_SECRET";
+
+function setWebhook(){
+   let webAppUrl ="Deployed_Script_URL";
+   let response = UrlFetchApp.fetch("https://api.telegram.org/bot"+token+"/setWebhook?url="+ webAppUrl);
+   console.log(response.getContentText()); 
+}
+
+function doGet(e) {
+  const chatId = e.parameter.chat_id;
+  return HtmlService.createHtmlOutput(`<div style="text-align: center; font-family: Arial, sans-serif;">
+    <h2 style="font-size: 32px; color: green;">? Payment Successful!</h2>
+    <p style="font-size: 22px;">You may now return to Telegram.</p>
+    </div>`);
+}
+
+function doPost(e) {
+  const data = JSON.parse(e.postData.contents);
+  getSheets().ref.getRange(1, 1).setValue(JSON.stringify(data, null, 5));
+  if (data.entity) {
+   const payment = data.payload.payment.entity;
+   const status = payment.status;
+   if (status === "captured" || status === "failed") {
+    const chat = payment.notes.chatId;
+    const id = payment.id;
+    const phone = payment.contact;
+    const amount = payment.amount / 100; 
+    savePaymentDetail(chat, id, status, phone, amount);
+     if (status === "captured") {
+        sendText(chat, `? Payment successful! Your order is confirmed.\nFor any query in order pls contact +918870951685 with order id: ${chat} and Payment id: ${id}`);
+       } else if (status === "failed") {
+        sendText(chat, "? Payment failed. Please try again by clicking ? Proceed to Payment.");
+     }   
+  }
+}
+
+  if (data.callback_query) {
+    const callbackData = data.callback_query.data;  
+    const callbackChatId = data.callback_query.from.id; 
+
+    if (callbackData.startsWith("remove_")) {
+      handleRemoveFromCart(callbackChatId, callbackData, data);
+    }
+  } 
+  
+
+  const ADMIN_ID = "ADMIL User_ID";
+  const msg = data.message;
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+
+  
+
+  // Admin-specific flow
+  if (userId === ADMIN_ID) {
+    sendText(chatId, "?? Welcome, Admin!");
+    return;
+  }
+
+  // Contact handling flow
+  if (msg.contact && msg.contact.phone_number) {
+    addUserWithPhone(msg);
+    sendText(chatId, "? Thanks! Your number is saved.", true);
+    sendMenu(chatId);
+    return;
+  }
+
+  // Start command flow
+  if (msg.text === "/start") {
+    const isExistingUser = checkIfUserExists(userId);
+    if (isExistingUser) {
+      sendText(chatId, `?? Welcome back ${msg.from.first_name}!`);
+      sendMenu(chatId);
+    } else {
+      sendPhoneRequest(chatId);
+    }
+    return;
+  }
+  
+  const state = getUserState(chatId);
+  getSheets().ref.getRange(3, 1).setValue(state);
+  if (state) {
+  getSheets().ref.getRange(4, 1).setValue(state);
+  if (state === "ASKING_NAME") {
+    const fullName =msg.text;
+    getSheets().ref.getRange(5, 1).setValue(fullName);
+    saveUserDetail(chatId, "name", fullName);
+    sendText(chatId, "?? Please enter your *Address*:");
+    setUserState(chatId, "ASKING_ADDRESS");
+    return;
+  }
+
+  if (state === "ASKING_ADDRESS") {
+    const fullName = msg.text;
+    saveUserDetail(chatId, "address", fullName);
+    sendText(chatId, "?? Please share your *Location link*:");
+    setUserState(chatId, "ASKING_LOCATION");
+    return;
+  }
+
+  if (state === "ASKING_LOCATION") {
+    const fullName = msg.location.latitude;
+    const fullName1 = msg.location.longitude;
+    saveUserDetail(chatId, "location", fullName, fullName1);
+    sendText(chatId, "? Order placed! Proceeding to payment...");
+    clearUserState(chatId);
+    handleAddToOrder(chatId); 
+    return;
+  }
+  }
+  const text = msg.text;
+  const qtyMatch = text.match(/\d+(\.\d+)?/);
+  if (qtyMatch) {
+    const quantity = parseFloat(qtyMatch[0]); // converts string "2.5" to number 2.5
+    setQuantity(chatId, quantity);
+  return;
+  }
+
+  handleMenuSelection(chatId, msg);
+}
+
+function checkIfUserExists(userId) {
+  const sheet = getSheets().users;
+  const data = sheet.getDataRange().getValues();
+  return data.some(row => row[0] === userId);
+}
+
+function sendText(chatId, message, removeKeyboard = false) {
+  const url = `https://api.telegram.org/bot${token}/sendMessage`;
+  
+  const payload = {
+    chat_id: chatId,
+    text: message
+  };
+  if (removeKeyboard) {
+    payload.reply_markup = {
+      remove_keyboard: true
+    };
+  }
+  const options = {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  };
+
+  const response = UrlFetchApp.fetch(url, options);
+  Logger.log("Text Response: " + response.getContentText());
+}
+
+function addUserWithPhone(message) {
+  const sheet = getSheets().users;
+  const user = message.from;
+  const phone = message.contact.phone_number;
+
+  const userId = user.id;
+  const data = sheet.getDataRange().getValues();
+  const exists = data.some(row => row[0] === userId);
+
+  if (!exists) {
+    sheet.appendRow([
+      user.id,
+      user.first_name || "",
+      user.username || "",
+      phone || "",
+      new Date()
+    ]);
+  }
+}
+
+function sendPhoneRequest(chatId) {
+  const payload = {
+    chat_id: chatId,
+    text: "?? Please share your number to continue:",
+    reply_markup: {
+      keyboard: [
+        [{
+          text: "?? Share my number",
+          request_contact: true
+        }]
+      ],
+      one_time_keyboard: true,
+      resize_keyboard: true
+    }
+  };
+
+  const options = {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify(payload)
+  };
+   UrlFetchApp.fetch(`https://api.telegram.org/bot${token}/sendMessage`, options);
+}
+
+function sendMenu(chatId) {
+  const url = `https://api.telegram.org/bot${token}/sendMessage`;
+  
+  const payload = {
+    chat_id: chatId,
+    text: "??? Please choose a category:",
+    reply_markup: {
+      keyboard: [
+        [{ text: "?? Mutton" }],
+        [{ text: "?? Chicken" }]
+      ],
+      resize_keyboard: true,
+      one_time_keyboard: true
+    }
+  };
+
+  const options = {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify(payload)
+  };
+
+  UrlFetchApp.fetch(url, options);
+}
+
+function handleMenuSelection(chatId, msg) {
+  const userId = msg.from.id;
+  const username = msg.from.username || "Unknown";
+  switch (msg.text) {
+    case "?? Mutton":
+      sendText(chatId, "Mutton Menu:\n1kg – ?900\nBoneless – ?1200\nLiver – ?900\ntype cart to view item in cart");
+      sendItemOptions(chatId, "Mutton");
+      break;
+    case "?? Chicken":
+      sendText(chatId, "Chicken Menu:\n1kg – ?300\nBoneless – ?400\nLegs – ?50 each\ntype cart to view item in cart");
+      sendItemOptions(chatId, "Chicken");
+      break;
+    case "Mutton":
+      saveToTemp(chatId, userId, username, "Mutton");
+      sendQuantityOptions("Mutton",chatId);
+      break; 
+    case "Mutton Boneless":
+      saveToTemp(chatId, userId, username, "Mutton Boneless");
+      sendQuantityOptions("Mutton Boneless",chatId);
+      break;  
+    case "Liver":
+      saveToTemp(chatId, userId, username, "Liver");
+      sendQuantityOptions("Liver",chatId);
+      break;
+    case "Chicken":
+      saveToTemp(chatId, userId, username, "Chicken");
+      sendQuantityOptions("Chicken",chatId);
+      break; 
+    case "Chicken Boneless":
+      saveToTemp(chatId, userId, username, "Chicken Boneless");
+      sendQuantityOptions("Chicken Boneless",chatId);
+      break; 
+    case "Legs":
+      saveToTemp(chatId, userId, username, "Legs");
+      sendQuantityOptions("Legs",chatId);
+      break;     
+    case "? Add to Cart":
+      handleAddToCart(chatId);
+      break; 
+    case "? Add More Items":
+      sendMenu(chatId);
+      break;
+    case "cart":
+      handleCart(chatId); 
+      break; 
+    case "? Cancel":
+      clearTemp(chatId);
+      sendText(chatId, "? Cancelled. Back to main menu.");
+      sendMenu(chatId);
+      break;     
+    case "Proceed to Payment":
+      onProceedToPayment(chatId);
+      break; 
+    case "? Cancel Order":
+      clearOrder(chatId); 
+      break;
+    case "? Proceed to Payment":
+      sendPaymentLink(chatId);
+      break;        
+    default:
+      sendText(chatId, "? Please select a valid option from the menu.");
+  }
+}
+
+function saveToTemp(chatId, userId, username, item) {
+  const sheet = getSheets().temp;
+  sheet.appendRow([new Date(),chatId, userId, username, item]);
+}
+
+function sendItemOptions(chatId, category) {
+  let items = {
+    "Mutton": [
+      [{ text: "Mutton" }],
+      [{ text: "Mutton Boneless" }],
+      [{ text: "Liver" }]
+    ],
+    "Chicken": [
+      [{ text: "Chicken" }],
+      [{ text: "Chicken Boneless" }],
+      [{ text: "Legs" }]
+    ]
+  };
+  const payload = {
+    chat_id: chatId,
+    text: `?? Select item from ${category}:`,
+    reply_markup: {
+      keyboard: items[category],
+      resize_keyboard: true,
+      one_time_keyboard: true
+    }
+  };
+  UrlFetchApp.fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify(payload)
+  });
+}
+
+function sendQuantityOptions(item,chatId) {
+  if(item === "Legs"){
+   const payload = {
+    chat_id: chatId,
+    text: "?? How much do you want to order?",
+    reply_markup: {
+      keyboard: [
+        [{ text: "2" }, { text: "4" }],
+        [{ text: "6" }, { text: "8" }],
+        [{ text: "Or type number above and send" }]
+      ],
+      resize_keyboard: true,
+      one_time_keyboard: true
+    }
+  };
+  UrlFetchApp.fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify(payload) 
+  });
+  }
+  else{
+   const payload = {
+    chat_id: chatId,
+    text: "?? How much do you want to order?",
+    reply_markup: {
+      keyboard: [
+        [{ text: "0.5 kg" }, { text: "1 kg" }],
+        [{ text: "2 kg" }, { text: "Or type number above and send" }]
+      ],
+      resize_keyboard: true,
+      one_time_keyboard: true
+    }
+  };
+  UrlFetchApp.fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify(payload)
+  });
+  }
+}
+
+function setQuantity(chatId, quantityText) {
+  const sheet = getSheets().temp;
+  const data = sheet.getDataRange().getValues();
+  let quantityValue = quantityText;
+
+  quantityText = quantityText.toString(); // ? Convert to string before using includes()
+
+  // Convert to numeric values
+  if (quantityText.includes("kg")) {
+    quantityValue = parseFloat(quantityText);
+  } else if (!isNaN(quantityText)) {
+    quantityValue = parseFloat(quantityText);
+  }
+
+  for (let i = data.length - 1; i >= 0; i--) {
+    if (data[i][1] === chatId && (!data[i][5] || data[i][5].toString().trim() === "")) {
+      sheet.getRange(i + 1, 6).setValue(quantityValue);
+      Utilities.sleep(3);
+      showItemSummary(chatId);
+      return;
+    }
+  }
+}
+
+function showItemSummary(chatId) {
+  const sheet = getSheets().temp;
+  const data = sheet.getDataRange().getValues();
+
+  let row;
+  for (let i = data.length - 1; i >= 0; i--) {
+    if (data[i][1] == chatId) {
+      row = data[i];
+      break;
+    }
+  }
+
+  if (!row) return;
+
+  const item = row[4];             // Item
+  const qty = row[5];              // Quantity
+  const unitPrice = row[8];        // Price per unit
+  const total = row[9];            // Total price
+
+  const msg = `?? *Item Summary:*\n` +
+              `• ${item} x ${qty}\n` +
+              `• ?${unitPrice} per unit\n` +
+              `?? *Total: ?${total}*\n\n` +
+              `Add this to cart?`;
+
+  const payload = {
+    chat_id: chatId,
+    text: msg,
+    parse_mode: "Markdown",
+    reply_markup: {
+      keyboard: [
+        [{ text: "? Add to Cart" }, { text: "? Cancel" }]
+      ],
+      resize_keyboard: true,
+      one_time_keyboard: true
+    }
+  };
+
+  UrlFetchApp.fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify(payload)
+  });
+}
+
+function handleAddToCart(chatId) {
+  const sheets = getSheets();
+  const tempSheet = sheets.temp;
+  const cartSheet = sheets.cart;
+
+  const tempData = tempSheet.getDataRange().getValues();
+  let rowIndexToClear = -1;
+  let rowData;
+
+  // Step 1: Find the user's row in Temp (latest one)
+  for (let i = tempData.length - 1; i >= 1; i--) { // skip header row
+    if (tempData[i][1] == chatId) {
+      rowIndexToClear = i;
+      rowData = tempData[i];
+      break;
+    }
+  }
+
+  if (rowIndexToClear === -1) {
+    sendMessage(chatId, "?? No item found in Temp to add to cart.");
+    return;
+  }
+
+  // Step 2: Add to Cart sheet
+  cartSheet.appendRow(rowData);
+
+  // Step 3: Clear only columns A–F in the Temp sheet for that row
+  tempSheet.getRange(rowIndexToClear + 1, 1, 1, 6).clearContent(); // +1 for 1-indexed rows
+
+  // Step 4: Confirmation + Offer more
+  const msg =`? Added *${rowData[4]} x ${rowData[5]}* to your cart.\n?? Want to add more items?\n type cart to view item in cart`;
+  const payload = {
+    chat_id: chatId,
+    text: msg,
+    parse_mode: "Markdown",
+    reply_markup: {
+      keyboard: [
+        [{ text: "? Add More Items" }, { text: "Proceed to Payment" }]
+      ],
+      resize_keyboard: true,
+      one_time_keyboard: true
+    }
+  };
+
+  UrlFetchApp.fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify(payload)
+  });
+}
+  
+function handleCart(chatId, messageId) {
+  const sheets = getSheets();
+  const cartSheet = sheets.cart;
+  const cartData = cartSheet.getDataRange().getValues();
+  sheets.ref.getRange(2, 1).setValue(messageId);
+  let userCartItems = [];
+  let totalAmount = 0;
+  const inlineButtons = [];
+  // Skip header, loop through cart
+  for (let i = 1; i < cartData.length; i++) {
+    const row = cartData[i];
+    if (row[1] == chatId) {
+      const itemName = row[4];    // Assuming item name in column H (index 7)
+      const quantity = row[5];    // Assuming quantity in column F (index 5)
+      const total = row[9];       // Assuming total in column J (index 9)
+
+      userCartItems.push(`• *${itemName}* x ${quantity} = ?${total}`);
+      totalAmount += Number(total);
+      inlineButtons.push([
+      {
+        text: `? Remove ${itemName} x${quantity}`,
+        callback_data: `remove_${itemName}_${quantity}`
+      }
+      ]);
+    }
+  }
+
+  if (userCartItems.length === 0) {
+    if(messageId ==null){
+      sendText(chatId, "?? Your cart is empty.\nAdd items from the menu to begin.");
+      return;  
+        }
+    else {
+       const emptyPayload = {
+       chat_id: chatId,
+      message_id: messageId,
+      text: "?? Your cart is empty.\nAdd items from the menu to begin.",
+      parse_mode: "Markdown"
+    };
+
+    UrlFetchApp.fetch(`https://api.telegram.org/bot${token}/editMessageText`, {
+      method: "post",
+      contentType: "application/json",
+      payload: JSON.stringify(emptyPayload)
+    });
+    return;
+     
+    }
+  }
+
+  // Combine message
+  const cartText = `?? *Your Cart:*\n\n${userCartItems.join('\n')}\n\n?? *Total: ?${totalAmount}*`;
+  
+  const payload = {
+  chat_id: chatId,
+  text: cartText,
+  parse_mode: "Markdown",
+  reply_markup: {
+    inline_keyboard: inlineButtons
+  }
+  };
+
+  UrlFetchApp.fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+  method: "post",
+  contentType: "application/json",
+  payload: JSON.stringify(payload)
+  }); 
+}
+
+function handleRemoveFromCart(chatId, callbackData, data) {
+  const sheets = getSheets();
+  const cartSheet = sheets.cart;
+  const cartData = cartSheet.getDataRange().getValues();
+  const [, itemName, quantityStr] = callbackData.split("_");
+  const quantity = Number(quantityStr);
+   
+  // Find and delete the first matching row
+  for (let i = 1; i < cartData.length; i++) {
+    const row = cartData[i];
+    if (row[1] == chatId && row[4] == itemName && Number(row[5]) == quantity) {
+      cartSheet.deleteRow(i + 1); // sheet is 1-indexed
+      break;
+    }
+  }
+
+  // Acknowledge button press (so it stops spinning)
+  
+  const callbackId = data.callback_query.id;
+  const messageId = data.callback_query.message.message_id;
+  UrlFetchApp.fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify({
+      callback_query_id: callbackId,
+      text: `? Removed ${itemName} x${quantity} from your cart.`,
+      show_alert: false
+    })
+  });
+
+  // Show updated cart
+  handleCart(chatId, messageId);
+}
+
+function clearTemp(chatId) {
+  const tempSheet = getSheets().temp;
+  const tempData = tempSheet.getDataRange().getValues();
+
+  for (let i = 1; i < tempData.length; i++) { // skip header
+    if (tempData[i][1] == chatId) {
+      // Clear columns A to F (1 to 6) in the matching row
+      tempSheet.getRange(i + 1, 1, 1, 6).clearContent();
+      break;
+    }
+  }
+}
+
+function onProceedToPayment(chatId) {
+  sendText(chatId, "?? Please enter your *Full Name*:");
+  setUserState(chatId, "ASKING_NAME");
+}
+
+function getUserState(chatId) {
+  const data = getSheets().state.getDataRange().getValues();
+
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === chatId) {
+      return data[i][1];
+    }
+  }
+   return null;
+} 
+
+function setUserState(chatId, state) {
+   const sheet = getSheets().state;
+   const data = sheet.getDataRange().getValues();
+
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === chatId) {
+      sheet.getRange(i + 1, 2).setValue(state);
+      return;
+    }
+  }
+  sheet.appendRow([chatId, state]);
+}
+
+function clearUserState(chatId) {
+  const sheet = getSheets().state;
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === chatId) {
+      sheet.deleteRow(i + 1); // or delete row if you prefer
+      return;
+    }
+  }
+}
+
+function saveUserDetail(chatId, field, value, value1) {
+  const sheet = getSheets().cart;
+  const data = sheet.getDataRange().getValues();
+
+  // Find existing row
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][1] === chatId) {
+      if (field === "name") sheet.getRange(i + 1, 11).setValue(value);
+      if (field === "address") sheet.getRange(i + 1, 12).setValue(value);
+      if (field === "location") sheet.getRange(i + 1, 13).setValue(value); sheet.getRange(i + 1, 14).setValue(value1);
+    }
+  }return;
+}
+
+function handleAddToOrder(chatId) {
+  const sheets = getSheets();
+  const orderSheet = sheets.order;
+  const cartSheet = sheets.cart;
+
+  const cartData = cartSheet.getDataRange().getValues();
+  let matchedRows = [];
+  let totalQuantity = 0;
+  let totalPrice = 0;
+  let itemSummary = "";
+  let rowIndexesToClear = [];
+
+  // Step 1: Collect all rows matching chatId
+  for (let i = 1; i < cartData.length; i++) { // skip header
+    const row = cartData[i];
+    if (row[1] == chatId) {
+      matchedRows.push(row);
+      rowIndexesToClear.push(i + 1); // Google Sheets is 1-indexed
+
+      const item = row[7];       // Item
+      const category = row[4];   // Category
+      const qty = parseFloat(row[5]); // Quantity
+      const price = parseFloat(row[9]); // Price
+
+      totalQuantity += qty;
+      totalPrice += price;
+
+      itemSummary += `- ${item} (${category}) — ${qty} kg — ?${price}\n`;
+    }
+  }
+
+  if (matchedRows.length === 0) {
+    sendMessage(chatId, "?? No items found in Temp to add to cart.");
+    return;
+  }
+
+  // Step 2: Append all rows to orderSheet and clear from cart
+  matchedRows.forEach(row => orderSheet.appendRow(row));
+  rowIndexesToClear.forEach(idx => cartSheet.getRange(idx, 1, 1, 14).clearContent());
+
+  // Step 3: Get user details from last row (assume consistent)
+  const lastRow = matchedRows[matchedRows.length - 1];
+  const name = lastRow[10];
+  const address = lastRow[11];
+  const phone = lastRow[6];
+  const lat = lastRow[12];
+  const long = lastRow[13];
+
+  // Step 4: Prepare message
+  const msg = `
+ ?? *Your Order Summary*
+
+ ?? *Items*:
+ ${itemSummary} 
+
+ ?? *Total Price*: ?${totalPrice}
+
+ ?? *Name*: ${name}  
+ ?? *Address*: ${address}  
+ ?? *Phone*: ${phone}
+
+ ?? *Location*: [View on Map](https://www.google.com/maps?q=${lat},${long})
+ `;
+
+  const payload = {
+    chat_id: chatId,
+    text: msg,
+    parse_mode: "Markdown",
+    reply_markup: {
+      keyboard: [
+        [{ text: "? Proceed to Payment" }, { text: "? Cancel Order" }]
+      ],
+      resize_keyboard: true,
+      one_time_keyboard: true
+    }
+  };
+
+  UrlFetchApp.fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify(payload)
+  });
+}
+
+function clearOrder(chatId) {
+  const tempSheet = getSheets().order;
+  const tempData = tempSheet.getDataRange().getValues();
+
+  for (let i = 1; i < tempData.length; i++) { // skip header
+    if (tempData[i][1] == chatId) {
+      tempSheet.getRange(i + 1, 1, 1, 14).clearContent();
+    }
+  }
+  sendText(chatId, "? Your order has been *cancelled* successfully.", "Markdown");
+  sendMenu(chatId);
+}
+
+function sendPaymentLink(chatId) {
+  const sheets = getSheets();
+  const orderSheet = sheets.order;
+  const data = orderSheet.getDataRange().getValues();
+
+  // Get all items of the user
+  const userOrders = data.filter(row => row[1] == chatId);
+  if (userOrders.length === 0) {
+    sendText(chatId, "?? No order found for payment.");
+    return;
+  }
+
+  // Calculate total amount
+  const totalAmount = userOrders.reduce((sum, row) => sum + parseFloat(row[9] || 0), 0);
+  const name = userOrders[0][10];
+  const phone = userOrders[0][6];
+  const address = userOrders[0][11];
+  const callbackUrl = `{Deployed_Script}?chat_id=${chatId}`;
+  const payload = {
+    amount: totalAmount * 100, // Razorpay expects amount in paise
+    currency: "INR",
+    accept_partial: false,
+    customer: {
+      name: name,
+      contact: String(phone)
+    },
+    notify: {
+      sms: false,
+      email: false
+    },
+    reminder_enable: true,
+    notes: {
+      address: address,
+      chatId: chatId
+    },
+    callback_url: callbackUrl,
+    callback_method: "get"
+  };
+
+  const options = {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify(payload),
+    headers: {
+      Authorization: "Basic " + Utilities.base64Encode(RAZORPAY_KEY_ID + ":" + RAZORPAY_SECRET)
+    },
+    muteHttpExceptions: true
+  };
+
+  const response = UrlFetchApp.fetch("https://api.razorpay.com/v1/payment_links", options);
+  const result = JSON.parse(response.getContentText());
+  getSheets().ref.getRange(7, 1).setValue(JSON.stringify(result, null, 5));
+  if (result.short_url) {
+    sendText(chatId, `?? Please complete your payment using the link below:\n\n${result.short_url}`);
+  } else {
+    sendText(chatId, "? Failed to generate payment link. Try again.");
+    Logger.log(response.getContentText());
+  }
+}
+
+function savePaymentDetail(chat, id, status, phone, amount) {
+  const sheet = getSheets().order;
+  const data = sheet.getDataRange().getValues();
+
+  for (let i = data.length - 1; i >= 0; i--) {
+    if (String(data[i][1]) === String(chat)) {
+      sheet.getRange(i + 1, 15).setValue(id);
+      sheet.getRange(i + 1, 16).setValue(status);
+      sheet.getRange(i + 1, 17).setValue(phone);
+      sheet.getRange(i + 1, 18).setValue(amount);
+    }
+  }
+  return;
+}
