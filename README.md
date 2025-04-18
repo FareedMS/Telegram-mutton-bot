@@ -22,7 +22,7 @@ A Telegram bot built for butchery orders using Google Apps Script, Google Sheets
 ---
 
 ## 🖼️ Screenshots
-<img src="images/menu.png" width="400"/>
-<img src="images/payment.png" width="400"/>
-<img src="images/delivery_status.png" width="400"/>
+<img src="images/order.jpeg" width="400"/>
+<img src="images/acknowledgement.jpeg" width="400"/>
+<img src="images/appsheet.jpeg" width="400"/>
 
