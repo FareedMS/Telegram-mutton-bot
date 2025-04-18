@@ -1,2 +1,2 @@
-# Telegram-mutton-bot
-A Telegram bot for butchery orders built with Google Apps Script
+# 🐐 Noor Meat Telegram Bot
+A Telegram bot built for butchery orders using Google Apps Script, Google Sheets, Razorpay, and AppSheet. Handles the full order cycle: from placing orders to delivery confirmation.
