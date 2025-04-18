@@ -1,3 +1,21 @@
+function onChangeHandler(e) {
+  const sheet = SpreadsheetApp.getActive().getSheetByName("del");
+  if (!sheet) return;
+  const range = sheet.getDataRange();
+  const data = range.getValues();
+
+  for (let i = 1; i < data.length; i++) {
+    const status = data[i][12]; 
+    const sent = data[i][13];   
+    if (status === "Delivered" && !sent) {
+      const chatId = data[i][1];
+      const items = data[i][2];
+      sendText(chatId,`✅ Your order has been delivered!\n🛒 Items: ${items}\n\nThanks for choosing *NOOR Meat*! 🥩`);
+      sheet.getRange(i + 1, 14).setValue("✅ Notified"); 
+    }
+  }
+}   
+
 function getSheets() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   return {
@@ -7,15 +25,18 @@ function getSheets() {
     temp: ss.getSheetByName("temp"),
     prices: ss.getSheetByName("Prices"),
     state: ss.getSheetByName("state"),
-    order: ss.getSheetByName("order")
+    order: ss.getSheetByName("order"),
+    delivery: ss.getSheetByName("del"),
+    pending: ss.getSheetByName("Pend"),
+    test: ss.getSheetByName("test")
   };
 }
 
-const token = "Telegram_token";
+const token = "Your Tele Token";
+const RAZORPAY_KEY_ID = "Your RAZORPAY_KEY_ID";
 const RAZORPAY_SECRET = "RAZORPAY_SECRET";
-
+let webAppUrl ="https://script.google.com/macros/s/AKfycbzcC3RJuCZSAN62OrCUNBZu68O1u578inomunLhYKof0AI9JBgz2RsuAVJb0gS_LrFp/exec";
 function setWebhook(){
-   let webAppUrl ="Deployed_Script_URL";
    let response = UrlFetchApp.fetch("https://api.telegram.org/bot"+token+"/setWebhook?url="+ webAppUrl);
    console.log(response.getContentText()); 
 }
@@ -23,7 +44,7 @@ function setWebhook(){
 function doGet(e) {
   const chatId = e.parameter.chat_id;
   return HtmlService.createHtmlOutput(`<div style="text-align: center; font-family: Arial, sans-serif;">
-    <h2 style="font-size: 32px; color: green;">? Payment Successful!</h2>
+    <h2 style="font-size: 32px; color: green;">✅ Payment Successful!</h2>
     <p style="font-size: 22px;">You may now return to Telegram.</p>
     </div>`);
 }
@@ -41,9 +62,27 @@ function doPost(e) {
     const amount = payment.amount / 100; 
     savePaymentDetail(chat, id, status, phone, amount);
      if (status === "captured") {
-        sendText(chat, `? Payment successful! Your order is confirmed.\nFor any query in order pls contact +918870951685 with order id: ${chat} and Payment id: ${id}`);
+        moveToDelivery();        
+        sendText(chat, `✅ Payment successful! Your order is confirmed.\nFor any query in order pls contact +91xxxxxxxxxx with order id: ${chat} and Payment id: ${id}`);
        } else if (status === "failed") {
-        sendText(chat, "? Payment failed. Please try again by clicking ? Proceed to Payment.");
+        const msg = `❌ Payment failed. Please try again by clicking ✅ Proceed to Payment.`;
+        const payload = {
+                       chat_id: chat,
+                       text: msg,
+                       parse_mode: "Markdown",
+                       reply_markup: {
+                       keyboard: [
+                                [{ text: "✅ Proceed to Payment" }, { text: "❌ Cancel Order" }]
+                                 ],
+                       resize_keyboard: true,
+                       one_time_keyboard: true
+                        }
+        };
+        UrlFetchApp.fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: "post",
+        contentType: "application/json",
+        payload: JSON.stringify(payload)
+        });
      }   
   }
 }
@@ -58,7 +97,7 @@ function doPost(e) {
   } 
   
 
-  const ADMIN_ID = "ADMIL User_ID";
+  const ADMIN_ID = 1432403963;
   const msg = data.message;
   const chatId = msg.chat.id;
   const userId = msg.from.id;
@@ -67,14 +106,14 @@ function doPost(e) {
 
   // Admin-specific flow
   if (userId === ADMIN_ID) {
-    sendText(chatId, "?? Welcome, Admin!");
+    sendText(chatId, "👑 Welcome, Admin!");
     return;
   }
 
   // Contact handling flow
   if (msg.contact && msg.contact.phone_number) {
     addUserWithPhone(msg);
-    sendText(chatId, "? Thanks! Your number is saved.", true);
+    sendText(chatId, `✅ Thanks! Your number is saved.👋 Welcome ${msg.from.first_name}! into the NOOR Meat Order Bot – your trusted digital butcher shop! 🐐🐓\nPremium cuts, fresh orders, and sharp service – all just a few chops away.\nLet’s slice into your next order! 🥩🛒`, true);
     sendMenu(chatId);
     return;
   }
@@ -83,7 +122,7 @@ function doPost(e) {
   if (msg.text === "/start") {
     const isExistingUser = checkIfUserExists(userId);
     if (isExistingUser) {
-      sendText(chatId, `?? Welcome back ${msg.from.first_name}!`);
+      sendText(chatId, `👋 Welcome back ${msg.from.first_name}! into the NOOR Meat Order Bot – your trusted digital butcher shop! 🐐🐓\nPremium cuts, fresh orders, and sharp service – all just a few chops away.\nLet’s slice into your next order! 🥩🛒`);
       sendMenu(chatId);
     } else {
       sendPhoneRequest(chatId);
@@ -99,7 +138,7 @@ function doPost(e) {
     const fullName =msg.text;
     getSheets().ref.getRange(5, 1).setValue(fullName);
     saveUserDetail(chatId, "name", fullName);
-    sendText(chatId, "?? Please enter your *Address*:");
+    sendText(chatId, "🏠 Please enter your *Address*:");
     setUserState(chatId, "ASKING_ADDRESS");
     return;
   }
@@ -107,7 +146,7 @@ function doPost(e) {
   if (state === "ASKING_ADDRESS") {
     const fullName = msg.text;
     saveUserDetail(chatId, "address", fullName);
-    sendText(chatId, "?? Please share your *Location link*:");
+    sendText(chatId, "📍 Please share your *Location link*:");
     setUserState(chatId, "ASKING_LOCATION");
     return;
   }
@@ -116,7 +155,7 @@ function doPost(e) {
     const fullName = msg.location.latitude;
     const fullName1 = msg.location.longitude;
     saveUserDetail(chatId, "location", fullName, fullName1);
-    sendText(chatId, "? Order placed! Proceeding to payment...");
+    sendText(chatId, "✅ Order placed! Proceeding to payment...");
     clearUserState(chatId);
     handleAddToOrder(chatId); 
     return;
@@ -185,11 +224,11 @@ function addUserWithPhone(message) {
 function sendPhoneRequest(chatId) {
   const payload = {
     chat_id: chatId,
-    text: "?? Please share your number to continue:",
+    text: "📞 Please share your number to continue:",
     reply_markup: {
       keyboard: [
         [{
-          text: "?? Share my number",
+          text: "📱 Share my number",
           request_contact: true
         }]
       ],
@@ -211,11 +250,11 @@ function sendMenu(chatId) {
   
   const payload = {
     chat_id: chatId,
-    text: "??? Please choose a category:",
+    text: "🍽️ Please choose a category:",
     reply_markup: {
       keyboard: [
-        [{ text: "?? Mutton" }],
-        [{ text: "?? Chicken" }]
+        [{ text: "🐐 Mutton" }],
+        [{ text: "🐓 Chicken" }]
       ],
       resize_keyboard: true,
       one_time_keyboard: true
@@ -235,12 +274,12 @@ function handleMenuSelection(chatId, msg) {
   const userId = msg.from.id;
   const username = msg.from.username || "Unknown";
   switch (msg.text) {
-    case "?? Mutton":
-      sendText(chatId, "Mutton Menu:\n1kg � ?900\nBoneless � ?1200\nLiver � ?900\ntype cart to view item in cart");
+    case "🐐 Mutton":
+      sendText(chatId, "Mutton Menu:\n1kg – ₹900\nBoneless – ₹1200\nLiver – ₹900\ntype cart to view item in cart");
       sendItemOptions(chatId, "Mutton");
       break;
-    case "?? Chicken":
-      sendText(chatId, "Chicken Menu:\n1kg � ?300\nBoneless � ?400\nLegs � ?50 each\ntype cart to view item in cart");
+    case "🐓 Chicken":
+      sendText(chatId, "Chicken Menu:\n1kg – ₹300\nBoneless – ₹400\nLegs – ₹50 each\ntype cart to view item in cart");
       sendItemOptions(chatId, "Chicken");
       break;
     case "Mutton":
@@ -267,31 +306,31 @@ function handleMenuSelection(chatId, msg) {
       saveToTemp(chatId, userId, username, "Legs");
       sendQuantityOptions("Legs",chatId);
       break;     
-    case "? Add to Cart":
+    case "➕ Add to Cart":
       handleAddToCart(chatId);
       break; 
-    case "? Add More Items":
+    case "➕ Add More Items":
       sendMenu(chatId);
       break;
     case "cart":
       handleCart(chatId); 
       break; 
-    case "? Cancel":
+    case "❌ Cancel":
       clearTemp(chatId);
-      sendText(chatId, "? Cancelled. Back to main menu.");
+      sendText(chatId, "❌ Cancelled. Back to main menu.");
       sendMenu(chatId);
       break;     
     case "Proceed to Payment":
       onProceedToPayment(chatId);
       break; 
-    case "? Cancel Order":
+    case "❌ Cancel Order":
       clearOrder(chatId); 
       break;
-    case "? Proceed to Payment":
+    case "✅ Proceed to Payment":
       sendPaymentLink(chatId);
       break;        
     default:
-      sendText(chatId, "? Please select a valid option from the menu.");
+      sendText(chatId, "❓ Please select a valid option from the menu.");
   }
 }
 
@@ -315,7 +354,7 @@ function sendItemOptions(chatId, category) {
   };
   const payload = {
     chat_id: chatId,
-    text: `?? Select item from ${category}:`,
+    text: `🛒 Select item from ${category}:`,
     reply_markup: {
       keyboard: items[category],
       resize_keyboard: true,
@@ -333,7 +372,7 @@ function sendQuantityOptions(item,chatId) {
   if(item === "Legs"){
    const payload = {
     chat_id: chatId,
-    text: "?? How much do you want to order?",
+    text: "📦 How much do you want to order?",
     reply_markup: {
       keyboard: [
         [{ text: "2" }, { text: "4" }],
@@ -353,7 +392,7 @@ function sendQuantityOptions(item,chatId) {
   else{
    const payload = {
     chat_id: chatId,
-    text: "?? How much do you want to order?",
+    text: "📦 How much do you want to order?",
     reply_markup: {
       keyboard: [
         [{ text: "0.5 kg" }, { text: "1 kg" }],
@@ -376,7 +415,7 @@ function setQuantity(chatId, quantityText) {
   const data = sheet.getDataRange().getValues();
   let quantityValue = quantityText;
 
-  quantityText = quantityText.toString(); // ? Convert to string before using includes()
+  quantityText = quantityText.toString(); // ✅ Convert to string before using includes()
 
   // Convert to numeric values
   if (quantityText.includes("kg")) {
@@ -414,10 +453,10 @@ function showItemSummary(chatId) {
   const unitPrice = row[8];        // Price per unit
   const total = row[9];            // Total price
 
-  const msg = `?? *Item Summary:*\n` +
-              `� ${item} x ${qty}\n` +
-              `� ?${unitPrice} per unit\n` +
-              `?? *Total: ?${total}*\n\n` +
+  const msg = `🧾 *Item Summary:*\n` +
+              `• ${item} x ${qty}\n` +
+              `• ₹${unitPrice} per unit\n` +
+              `💰 *Total: ₹${total}*\n\n` +
               `Add this to cart?`;
 
   const payload = {
@@ -426,7 +465,7 @@ function showItemSummary(chatId) {
     parse_mode: "Markdown",
     reply_markup: {
       keyboard: [
-        [{ text: "? Add to Cart" }, { text: "? Cancel" }]
+        [{ text: "➕ Add to Cart" }, { text: "❌ Cancel" }]
       ],
       resize_keyboard: true,
       one_time_keyboard: true
@@ -459,25 +498,25 @@ function handleAddToCart(chatId) {
   }
 
   if (rowIndexToClear === -1) {
-    sendMessage(chatId, "?? No item found in Temp to add to cart.");
+    sendMessage(chatId, "⚠️ No item found in Temp to add to cart.");
     return;
   }
 
   // Step 2: Add to Cart sheet
   cartSheet.appendRow(rowData);
 
-  // Step 3: Clear only columns A�F in the Temp sheet for that row
+  // Step 3: Clear only columns A–F in the Temp sheet for that row
   tempSheet.getRange(rowIndexToClear + 1, 1, 1, 6).clearContent(); // +1 for 1-indexed rows
 
   // Step 4: Confirmation + Offer more
-  const msg =`? Added *${rowData[4]} x ${rowData[5]}* to your cart.\n?? Want to add more items?\n type cart to view item in cart`;
+  const msg =`✅ Added *${rowData[4]} x ${rowData[5]}* to your cart.\n🛒 Want to add more items?\n type cart to view item in cart`;
   const payload = {
     chat_id: chatId,
     text: msg,
     parse_mode: "Markdown",
     reply_markup: {
       keyboard: [
-        [{ text: "? Add More Items" }, { text: "Proceed to Payment" }]
+        [{ text: "➕ Add More Items" }, { text: "Proceed to Payment" }]
       ],
       resize_keyboard: true,
       one_time_keyboard: true
@@ -507,11 +546,11 @@ function handleCart(chatId, messageId) {
       const quantity = row[5];    // Assuming quantity in column F (index 5)
       const total = row[9];       // Assuming total in column J (index 9)
 
-      userCartItems.push(`� *${itemName}* x ${quantity} = ?${total}`);
+      userCartItems.push(`• *${itemName}* x ${quantity} = ₹${total}`);
       totalAmount += Number(total);
       inlineButtons.push([
       {
-        text: `? Remove ${itemName} x${quantity}`,
+        text: `❌ Remove ${itemName} x${quantity}`,
         callback_data: `remove_${itemName}_${quantity}`
       }
       ]);
@@ -520,14 +559,14 @@ function handleCart(chatId, messageId) {
 
   if (userCartItems.length === 0) {
     if(messageId ==null){
-      sendText(chatId, "?? Your cart is empty.\nAdd items from the menu to begin.");
+      sendText(chatId, "🛒 Your cart is empty.\nAdd items from the menu to begin.");
       return;  
         }
     else {
        const emptyPayload = {
        chat_id: chatId,
       message_id: messageId,
-      text: "?? Your cart is empty.\nAdd items from the menu to begin.",
+      text: "🛒 Your cart is empty.\nAdd items from the menu to begin.",
       parse_mode: "Markdown"
     };
 
@@ -542,7 +581,7 @@ function handleCart(chatId, messageId) {
   }
 
   // Combine message
-  const cartText = `?? *Your Cart:*\n\n${userCartItems.join('\n')}\n\n?? *Total: ?${totalAmount}*`;
+  const cartText = `🛒 *Your Cart:*\n\n${userCartItems.join('\n')}\n\n💰 *Total: ₹${totalAmount}*`;
   
   const payload = {
   chat_id: chatId,
@@ -580,12 +619,12 @@ function handleRemoveFromCart(chatId, callbackData, data) {
   
   const callbackId = data.callback_query.id;
   const messageId = data.callback_query.message.message_id;
-  UrlFetchApp.fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
+  UrlFetchApp.fetch(`https://api.telegram.org/bot8007565946:AAGWqibeM_z5ikqYb38Dt47WnbO5gGFtyJg/answerCallbackQuery`, {
     method: "post",
     contentType: "application/json",
     payload: JSON.stringify({
       callback_query_id: callbackId,
-      text: `? Removed ${itemName} x${quantity} from your cart.`,
+      text: `❌ Removed ${itemName} x${quantity} from your cart.`,
       show_alert: false
     })
   });
@@ -608,7 +647,7 @@ function clearTemp(chatId) {
 }
 
 function onProceedToPayment(chatId) {
-  sendText(chatId, "?? Please enter your *Full Name*:");
+  sendText(chatId, "📝 Please enter your *Full Name*:");
   setUserState(chatId, "ASKING_NAME");
 }
 
@@ -688,12 +727,12 @@ function handleAddToOrder(chatId) {
       totalQuantity += qty;
       totalPrice += price;
 
-      itemSummary += `- ${item} (${category}) � ${qty} kg � ?${price}\n`;
+      itemSummary += `- ${item} (${category}) — ${qty} kg — ₹${price}\n`;
     }
   }
 
   if (matchedRows.length === 0) {
-    sendMessage(chatId, "?? No items found in Temp to add to cart.");
+    sendMessage(chatId, "⚠️ No items found in Temp to add to cart.");
     return;
   }
 
@@ -711,18 +750,18 @@ function handleAddToOrder(chatId) {
 
   // Step 4: Prepare message
   const msg = `
- ?? *Your Order Summary*
+ 🧾 *Your Order Summary*
 
- ?? *Items*:
+ 📦 *Items*:
  ${itemSummary} 
 
- ?? *Total Price*: ?${totalPrice}
+ 💰 *Total Price*: ₹${totalPrice}
 
- ?? *Name*: ${name}  
- ?? *Address*: ${address}  
- ?? *Phone*: ${phone}
+ 👤 *Name*: ${name}  
+ 📍 *Address*: ${address}  
+ 📞 *Phone*: ${phone}
 
- ?? *Location*: [View on Map](https://www.google.com/maps?q=${lat},${long})
+ 🌐 *Location*: [View on Map](https://www.google.com/maps?q=${lat},${long})
  `;
 
   const payload = {
@@ -731,7 +770,7 @@ function handleAddToOrder(chatId) {
     parse_mode: "Markdown",
     reply_markup: {
       keyboard: [
-        [{ text: "? Proceed to Payment" }, { text: "? Cancel Order" }]
+        [{ text: "✅ Proceed to Payment" }, { text: "❌ Cancel Order" }]
       ],
       resize_keyboard: true,
       one_time_keyboard: true
@@ -754,7 +793,7 @@ function clearOrder(chatId) {
       tempSheet.getRange(i + 1, 1, 1, 14).clearContent();
     }
   }
-  sendText(chatId, "? Your order has been *cancelled* successfully.", "Markdown");
+  sendText(chatId, "❌ Your order has been *cancelled* successfully.", "Markdown");
   sendMenu(chatId);
 }
 
@@ -764,9 +803,9 @@ function sendPaymentLink(chatId) {
   const data = orderSheet.getDataRange().getValues();
 
   // Get all items of the user
-  const userOrders = data.filter(row => row[1] == chatId);
+  const userOrders = data.filter(row => row[1] == chatId && (!row[15] || row[20] == "ACTIVE"));
   if (userOrders.length === 0) {
-    sendText(chatId, "?? No order found for payment.");
+    sendText(chatId, "⚠️ No order found for payment.");
     return;
   }
 
@@ -775,7 +814,7 @@ function sendPaymentLink(chatId) {
   const name = userOrders[0][10];
   const phone = userOrders[0][6];
   const address = userOrders[0][11];
-  const callbackUrl = `{Deployed_Script}?chat_id=${chatId}`;
+  const callbackUrl = `${webAppUrl}?chat_id=${chatId}`;
   const payload = {
     amount: totalAmount * 100, // Razorpay expects amount in paise
     currency: "INR",
@@ -811,9 +850,9 @@ function sendPaymentLink(chatId) {
   const result = JSON.parse(response.getContentText());
   getSheets().ref.getRange(7, 1).setValue(JSON.stringify(result, null, 5));
   if (result.short_url) {
-    sendText(chatId, `?? Please complete your payment using the link below:\n\n${result.short_url}`);
+    sendText(chatId, `💳 Please complete your payment using the link below:\n\n${result.short_url}`);
   } else {
-    sendText(chatId, "? Failed to generate payment link. Try again.");
+    sendText(chatId, "❌ Failed to generate payment link. Try again.");
     Logger.log(response.getContentText());
   }
 }
@@ -821,14 +860,83 @@ function sendPaymentLink(chatId) {
 function savePaymentDetail(chat, id, status, phone, amount) {
   const sheet = getSheets().order;
   const data = sheet.getDataRange().getValues();
-
+  const date = new Date();
   for (let i = data.length - 1; i >= 0; i--) {
-    if (String(data[i][1]) === String(chat)) {
+    if (String(data[i][1]) === String(chat) && (!data[i][15] || data[i][20] == "ACTIVE") ) {
       sheet.getRange(i + 1, 15).setValue(id);
       sheet.getRange(i + 1, 16).setValue(status);
       sheet.getRange(i + 1, 17).setValue(phone);
       sheet.getRange(i + 1, 18).setValue(amount);
+      sheet.getRange(i + 1, 20).setValue(date);
     }
   }
   return;
 }
+
+function moveToDelivery(){
+  const sheets = getSheets();
+  const orderSheet = sheets.order;
+  const deliverySheet = sheets.pending;
+  const data = orderSheet.getDataRange().getValues();
+
+  const groupedOrders = {};
+
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    const chatId = String(row[1]);;
+    const customerName = row[10];
+    const address = row[11];
+    const movedStatus = row[18];
+    const status = row[15];
+    Logger.log(status);
+    if (movedStatus === '' && status === 'captured') {
+      const groupKey = `${chatId}-${customerName}-${address}`;
+       Logger.log(status);
+      if (!groupedOrders[groupKey]) groupedOrders[groupKey] = [];
+      
+      groupedOrders[groupKey].push({
+        rowIndex: i + 1,item: row[7],qty: row[5],price: row[9],name: row[10],address: row[11],lat: row[12],
+        lng: row[13],phone: row[6],paymentId: row[14],status: row[15],amount: row[17],chatId: row[1]
+      });
+      Logger.log(groupedOrders);
+    }
+  }
+  for (const key in groupedOrders) {
+    Logger.log("hi");
+    const orders = groupedOrders[key];
+    const first = orders[0];
+    const summary = orders.map(o => `${o.item} x ${o.qty} = ₹${o.price}`).join("\n");
+    Logger.log(summary);
+    const row = [
+      new Date(),first.chatId, summary, first.amount, first.status, first.paymentId, first.name, first.address, first.phone,  first.lat, first.lng
+      
+    ];
+    deliverySheet.appendRow(row);
+    orders.forEach(o => {
+      orderSheet.getRange(o.rowIndex, 19).setValue("Moved");
+    });
+  }
+}
+function updatePaymentActivity() {
+  const sheet = getSheets().order;
+  const data = sheet.getDataRange().getValues();
+  const now = new Date();
+
+  for (let i = 1; i < data.length; i++) {
+    const timestamp = data[i][19]; 
+    if (timestamp) {
+      const diffMs = now - new Date(timestamp);
+      const diffMin = diffMs / 1000 / 60;
+
+      if (diffMin <= 10) {
+        sheet.getRange(i + 1, 20).setValue("ACTIVE"); // Column U
+      } else {
+        sheet.getRange(i + 1, 20).setValue("EXPIRED");  // Column U
+      }
+    } else {
+      sheet.getRange(i + 1, 21).setValue("EXPIRED"); // No timestamp = not active
+    }
+  }
+}
+
+
