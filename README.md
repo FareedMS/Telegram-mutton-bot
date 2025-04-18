@@ -42,6 +42,8 @@ Set up AppSheet to update delivery status to Google Sheet
 Enjoy automated meat delivery 🚚🐐
 
 
+
+
 🙌 Author
 
 FareedMS
