@@ -42,6 +42,9 @@ Set up AppSheet to update delivery status to Google Sheet
 Enjoy automated meat delivery 🚚🐐
 
 🙌 Author
+
 FareedMS
+
 MIS Coordinator | Automation Enthusiast
+
 Whatsapp: +918870951685
