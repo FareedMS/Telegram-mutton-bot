@@ -28,9 +28,20 @@ A Telegram bot built for butchery orders using Google Apps Script, Google Sheets
 
 ⚙️ Setup Instructions
 Create a Telegram Bot via @BotFather
+
 Deploy the Mutton_bot.txt code as Google Apps Script project
+
 Set your Telegram Webhook URL in the script
+
 Configure Razorpay API keys and webhook
+
 Link your Google Sheet DB (Users, Orders, Cart, Prices, etc.)
+
 Set up AppSheet to update delivery status to Google Sheet
+
 Enjoy automated meat delivery 🚚🐐
+
+🙌 Author
+FareedMS
+MIS Coordinator | Automation Enthusiast
+Whatsapp: +918870951685
