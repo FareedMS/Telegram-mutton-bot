@@ -22,11 +22,13 @@ A Telegram bot built for butchery orders using Google Apps Script, Google Sheets
 ---
 
 ## 🖼️ Screenshots
-<img src="images/order.jpeg" width="100"/>
+<img src="images/screen1.1.jpeg" width="100"/>
+<img src="images/screen1.2.jpeg" width="100"/>
+<img src="images/screen2.jpeg" width="100"/>
 <img src="images/acknowledgement.jpeg" width="400"/>
 <img src="images/appsheet1.jpeg" width="400"/>
 <img src="images/appsheet2.jpeg" width="400"/>
-<img src="images/appsheet3.jpeg" width="400"/>
+<img src="images/appsheet34.jpeg" width="400"/>
 <img src="images/appsheet4.jpeg" width="400"/>
 ---
 ⚙️ Setup Instructions
