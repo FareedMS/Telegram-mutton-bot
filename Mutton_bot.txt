@@ -35,7 +35,7 @@ function getSheets() {
 const token = "Your Tele Token";
 const RAZORPAY_KEY_ID = "Your RAZORPAY_KEY_ID";
 const RAZORPAY_SECRET = "RAZORPAY_SECRET";
-let webAppUrl ="https://script.google.com/macros/s/AKfycbzcC3RJuCZSAN62OrCUNBZu68O1u578inomunLhYKof0AI9JBgz2RsuAVJb0gS_LrFp/exec";
+let webAppUrl ="Your deployed URL";
 function setWebhook(){
    let response = UrlFetchApp.fetch("https://api.telegram.org/bot"+token+"/setWebhook?url="+ webAppUrl);
    console.log(response.getContentText()); 
@@ -97,7 +97,7 @@ function doPost(e) {
   } 
   
 
-  const ADMIN_ID = 1432403963;
+  const ADMIN_ID = xxxxxxxxxxx;
   const msg = data.message;
   const chatId = msg.chat.id;
   const userId = msg.from.id;
